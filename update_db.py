@@ -33,16 +33,22 @@ def get_missing_items(conn):
 
 
 def save_item(conn, item):
-    if item.get('type') != 'story':
-        return
+    if item.get('type') == 'story':
+        conn.execute("""\
+            INSERT INTO Items
+            (id, type, by, time, url, score, title)
+            VALUES
+            (?, "story", ?, ?, ?, ?, ?)""",
+                     (item['id'], item.get('by'), item.get('time'), item.get('url'),
+                      item.get('score'), item.get('title')))
+    else:
+        conn.execute("""\
+            INSERT INTO Items
+            (id, type, time)
+            VALUES
+            (?, ?, ?)""",
+                     (item['id'], item.get('type'), item.get('time')))
 
-    conn.execute("""\
-        INSERT INTO Items
-          (id, type, by, time, url, score, title)
-        VALUES
-          (?, "story", ?, ?, ?, ?, ?)""",
-                 (item['id'], item['by'], item['time'], item['url'],
-                  item['score'], item['title']))
     conn.commit()
     logging.info('committed item with id %d', item['id'])
 
