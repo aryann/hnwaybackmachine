@@ -3,16 +3,21 @@ import logging
 import requests
 import sqlite3
 import sys
+import time
 
 
-async def find_gaps(conn, high_water_mark, queue):
-    rows = conn.execute('SELECT id FROM Items ORDER BY id')
+_COMMIT_BATCH_SIZE = 50
+
+
+async def find_gaps(conn, start, high_water_mark, queue):
+    rows = conn.execute(
+        'SELECT id FROM Items WHERE id >= ? ORDER BY id', (start,))
     try:
         next_id = next(rows)[0]
     except StopIteration:
         next_id = None
 
-    for id in range(1, high_water_mark):
+    for id in range(start, high_water_mark):
         if next_id == id:
             try:
                 next_id = next(rows)[0]
@@ -37,6 +42,15 @@ async def get_item(id):
     return response.json()
 
 
+async def get_items(task_id, id_queue, item_queue):
+    while not id_queue.empty():
+        id = await id_queue.get()
+        item = await get_item(id)
+        logging.info('task %4d: fetched item %d', task_id, id)
+        await item_queue.put(item)
+        id_queue.task_done()
+
+
 def save_item(conn, item):
     if item.get('type') == 'story':
         conn.execute("""\
@@ -54,43 +68,64 @@ def save_item(conn, item):
                     (?, ?, ?)""",
                      (item['id'], item.get('type'), item.get('time')))
 
+
+def save_items_in_list(conn, item_buffer):
+    for item in item_buffer:
+        save_item(conn, item)
     conn.commit()
 
 
-async def get_and_save_item(conn, queue, task_id):
+async def save_items(conn, item_queue, item_buffer):
+    start = time.time()
     while True:
-        id = await queue.get()
-        item = await get_item(id)
-        save_item(conn, item)
-        logging.info('task %4d: committed item with id %d',
-                     task_id, item['id'])
-        queue.task_done()
+        item_buffer.append(await item_queue.get())
+        item_queue.task_done()
+
+        if len(item_buffer) % _COMMIT_BATCH_SIZE == 0:
+            save_items_in_list(conn, item_buffer)
+            logging.info(
+                'took %.2f seconds to prepare %d items for commit',
+                time.time() - start, _COMMIT_BATCH_SIZE)
+            item_buffer = []
+            start = time.time()
 
 
-async def run(conn, num_consumers):
+async def run(conn, num_consumers, start):
     remote_high_water_mark = find_remote_high_water_mark()
     logging.info('remote high water mark: %d', remote_high_water_mark)
-    queue = asyncio.Queue(maxsize=10000)
+    id_queue = asyncio.Queue(maxsize=10000)
+    item_queue = asyncio.Queue(maxsize=10000)
+    item_buffer = []
 
-    producer = asyncio.create_task(
-        find_gaps(conn, remote_high_water_mark, queue))
-    consumers = [asyncio.create_task(
-        get_and_save_item(conn, queue, task_id))
+    id_producer = asyncio.create_task(
+        find_gaps(conn, start, remote_high_water_mark, id_queue))
+    item_producers = [asyncio.create_task(
+        get_items(task_id, id_queue, item_queue))
         for task_id in range(num_consumers)]
+    item_saver = asyncio.create_task(
+        save_items(conn, item_queue, item_buffer))
 
-    await asyncio.gather(producer)
-    await queue.join()
-    for consumer in consumers:
-        consumer.cancel()
+    await asyncio.gather(id_producer, *item_producers, item_saver)
+
+    await id_queue.join()
+    await item_queue.join()
+
+    for task in item_producers + [item_saver]:
+        task.cancel()
+
+    # Commit any outstanding items.
+    save_items_in_list(conn, item_buffer)
+    logging.info('committed %d final items', len(item_buffer))
 
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
     db = sys.argv[1]
     num_consumers = int(sys.argv[2])
+    start = int(sys.argv[3])
 
     conn = sqlite3.connect(db)
     try:
-        asyncio.run(run(conn, num_consumers))
+        asyncio.run(run(conn, num_consumers, start))
     finally:
         conn.close()
