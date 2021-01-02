@@ -52,6 +52,9 @@ async def get_items(task_id, id_queue, item_queue):
 
 
 def save_item(conn, item):
+    if not item:
+        return
+
     if item.get('type') == 'story':
         conn.execute("""\
                     INSERT INTO Items
