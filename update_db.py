@@ -6,7 +6,7 @@ import sys
 import time
 
 
-_COMMIT_BATCH_SIZE = 50
+_COMMIT_BATCH_SIZE = 100
 
 
 async def find_gaps(conn, start, high_water_mark, queue):
@@ -33,19 +33,20 @@ def find_remote_high_water_mark():
     return int(response.text)
 
 
-async def get_item(id):
+async def get_item(session, id):
     loop = asyncio.get_event_loop()
     future = loop.run_in_executor(
-        None, requests.get,
+        None, session.get,
         f'https://hacker-news.firebaseio.com/v0/item/{id}.json')
     response = await future
     return response.json()
 
 
 async def get_items(task_id, id_queue, item_queue):
+    session = requests.Session()
     while not id_queue.empty():
         id = await id_queue.get()
-        item = await get_item(id)
+        item = await get_item(session, id)
         logging.info('task %4d: fetched item %d', task_id, id)
         await item_queue.put(item)
         id_queue.task_done()
