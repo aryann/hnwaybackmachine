@@ -1,6 +1,6 @@
+import aiohttp
 import asyncio
 import logging
-import requests
 import sqlite3
 import sys
 import time
@@ -9,7 +9,9 @@ import time
 _COMMIT_BATCH_SIZE = 500
 
 
-async def find_gaps(conn, start, high_water_mark, queue):
+async def find_gaps(conn, start, queue):
+    remote_high_water_mark = await find_remote_high_water_mark()
+    logging.info('remote high water mark: %d', remote_high_water_mark)
     rows = conn.execute(
         'SELECT id FROM Items WHERE id >= ? ORDER BY id', (start,))
     try:
@@ -17,7 +19,7 @@ async def find_gaps(conn, start, high_water_mark, queue):
     except StopIteration:
         next_id = None
 
-    for id in range(start, high_water_mark):
+    for id in range(start, remote_high_water_mark):
         if next_id == id:
             try:
                 next_id = next(rows)[0]
@@ -27,29 +29,26 @@ async def find_gaps(conn, start, high_water_mark, queue):
             await queue.put(id)
 
 
-def find_remote_high_water_mark():
-    response = requests.get(
-        'https://hacker-news.firebaseio.com/v0/maxitem.json')
-    return int(response.text)
+async def find_remote_high_water_mark():
+    async with aiohttp.ClientSession() as session:
+        async with session.get('https://hacker-news.firebaseio.com/v0/maxitem.json') as response:
+            return int(await response.text())
 
 
 async def get_item(session, id):
-    loop = asyncio.get_event_loop()
-    future = loop.run_in_executor(
-        None, session.get,
-        f'https://hacker-news.firebaseio.com/v0/item/{id}.json')
-    response = await future
-    return response.json()
+    url = f'https://hacker-news.firebaseio.com/v0/item/{id}.json'
+    async with session.get(url) as response:
+        return await response.json()
 
 
 async def get_items(task_id, id_queue, item_queue):
-    session = requests.Session()
-    while not id_queue.empty():
-        id = await id_queue.get()
-        item = await get_item(session, id)
-        logging.info('task %4d: fetched item %d', task_id, id)
-        await item_queue.put(item)
-        id_queue.task_done()
+    async with aiohttp.ClientSession() as session:
+        while True:
+            id = await id_queue.get()
+            item = await get_item(session, id)
+            logging.info('task %4d: fetched item %d', task_id, id)
+            await item_queue.put(item)
+            id_queue.task_done()
 
 
 def serialize_list(items):
@@ -122,19 +121,17 @@ async def save_items(conn, item_queue, item_buffer):
 
 
 async def run(conn, num_consumers, start):
-    remote_high_water_mark = find_remote_high_water_mark()
-    logging.info('remote high water mark: %d', remote_high_water_mark)
     id_queue = asyncio.Queue(maxsize=10000)
     item_queue = asyncio.Queue(maxsize=10000)
     item_buffer = []
 
     id_producer = asyncio.create_task(
-        find_gaps(conn, start, remote_high_water_mark, id_queue))
+        find_gaps(conn, start, id_queue), name='id-producer')
     item_producers = [asyncio.create_task(
-        get_items(task_id, id_queue, item_queue))
+        get_items(task_id, id_queue, item_queue), name=f'item-producer-{task_id}')
         for task_id in range(num_consumers)]
     item_saver = asyncio.create_task(
-        save_items(conn, item_queue, item_buffer))
+        save_items(conn, item_queue, item_buffer), name='item-saver')
 
     await asyncio.gather(id_producer, *item_producers, item_saver)
 
@@ -157,6 +154,6 @@ if __name__ == '__main__':
 
     conn = sqlite3.connect(db)
     try:
-        asyncio.run(run(conn, num_consumers, start))
+        asyncio.run(run(conn, num_consumers, start), debug=True)
     finally:
         conn.close()
