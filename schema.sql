@@ -7,8 +7,11 @@ CREATE TABLE Items(
     text TEXT,
     dead BOOLEAN,
     parent INTEGER,
+    poll INTEGER,
+    kids TEXT,
     url TEXT,
     score INTEGER,
     title TEXT,
+    parts TEXT,
     descendants INTEGER
 );

@@ -52,25 +52,52 @@ async def get_items(task_id, id_queue, item_queue):
         id_queue.task_done()
 
 
+def serialize_list(items):
+    if not items:
+        return None
+    return ','.join(str(item) for item in items)
+
+
 def save_item(conn, item):
     if not item:
         return
 
-    if item.get('type') == 'story':
-        conn.execute("""\
+    conn.execute("""\
                     INSERT INTO Items
-                    (id, type, by, time, url, score, title)
-                    VALUES
-                    (?, "story", ?, ?, ?, ?, ?)""",
-                     (item['id'], item.get('by'), item.get('time'), item.get('url'),
-                      item.get('score'), item.get('title')))
-    else:
-        conn.execute("""\
-                    INSERT INTO Items
-                    (id, type, time)
-                    VALUES
-                    (?, ?, ?)""",
-                     (item['id'], item.get('type'), item.get('time')))
+                    (
+                        id,
+                        deleted,
+                        type,
+                        by,
+                        time,
+                        text,
+                        dead,
+                        parent,
+                        poll,
+                        kids,
+                        url,
+                        score,
+                        title,
+                        parts,
+                        descendants)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                 (
+                     item['id'],
+                     item.get('deleted'),
+                     item.get('type'),
+                     item.get('by'),
+                     item.get('time'),
+                     item.get('text'),
+                     item.get('dead', False),
+                     item.get('parent'),
+                     item.get('poll'),
+                     serialize_list(item.get('kids')),
+                     item.get('url'),
+                     item.get('score'),
+                     item.get('title'),
+                     serialize_list(item.get('parts')),
+                     item.get('descendants'),
+                 ))
 
 
 def save_items_in_list(conn, item_buffer):
