@@ -30,14 +30,15 @@ async def find_gaps(conn, start, queue):
 
 
 async def find_remote_high_water_mark():
+    url = 'https://hacker-news.firebaseio.com/v0/maxitem.json'
     async with aiohttp.ClientSession() as session:
-        async with session.get('https://hacker-news.firebaseio.com/v0/maxitem.json') as response:
+        async with session.get(url, raise_for_status=True) as response:
             return int(await response.text())
 
 
 async def get_item(session, id):
     url = f'https://hacker-news.firebaseio.com/v0/item/{id}.json'
-    async with session.get(url) as response:
+    async with session.get(url, raise_for_status=True) as response:
         return await response.json()
 
 
@@ -45,7 +46,14 @@ async def get_items(task_id, id_queue, item_queue):
     async with aiohttp.ClientSession() as session:
         while True:
             id = await id_queue.get()
-            item = await get_item(session, id)
+            try:
+                item = await get_item(session, id)
+            except aiohttp.ClientError as e:
+                logging.error('could not get item %d: %s', id, e)
+                await id_queue.put(id)
+                id_queue.task_done()
+                continue
+
             logging.info('task %4d: fetched item %d', task_id, id)
             await item_queue.put(item)
             id_queue.task_done()
@@ -112,11 +120,20 @@ async def save_items(conn, item_queue, item_buffer):
         item_queue.task_done()
 
         if len(item_buffer) % _COMMIT_BATCH_SIZE == 0:
-            save_items_in_list(conn, item_buffer)
+            try:
+                save_items_in_list(conn, item_buffer)
+            except sqlite3.OperationalError as e:
+                logging.error('could not commit items: %s', e)
+                for item in item_buffer:
+                    await item_queue.put(item)
+                item_buffer.clear()
+                await asyncio.sleep(1)
+                continue
+
             logging.info(
                 'committed %d items; write rate: %2.3f items/s',
                 _COMMIT_BATCH_SIZE, _COMMIT_BATCH_SIZE / (time.time() - start))
-            item_buffer = []
+            item_buffer.clear()
             start = time.time()
 
 
