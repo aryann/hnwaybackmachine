@@ -6,7 +6,7 @@ import sys
 import time
 
 
-_COMMIT_BATCH_SIZE = 100
+_COMMIT_BATCH_SIZE = 500
 
 
 async def find_gaps(conn, start, high_water_mark, queue):
@@ -88,8 +88,8 @@ async def save_items(conn, item_queue, item_buffer):
         if len(item_buffer) % _COMMIT_BATCH_SIZE == 0:
             save_items_in_list(conn, item_buffer)
             logging.info(
-                'took %.2f seconds to prepare %d items for commit',
-                time.time() - start, _COMMIT_BATCH_SIZE)
+                'committed %d items; write rate: %2.3f items/s',
+                _COMMIT_BATCH_SIZE, _COMMIT_BATCH_SIZE / (time.time() - start))
             item_buffer = []
             start = time.time()
 
