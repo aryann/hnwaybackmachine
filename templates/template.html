@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+    </head>
+    <body>
+
+        <ul>
+            {% for story in stories %}
+            <li><a href="{{ story['url'] }}">{{ story['title'] }}</a></li>
+            {% endfor %}
+        </ul>
+    </body>
+</html>
