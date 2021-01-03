@@ -1,4 +1,3 @@
-import itertools
 import os
 import pathlib
 import jinja2
@@ -16,11 +15,15 @@ def get_dates(conn):
     conn.row_factory = sqlite3.Row
     rows = conn.execute("""\
         SELECT
-          strftime('%Y-%m-%d', time, 'unixepoch') AS day, id,
-          title, url, score
+            strftime('%Y-%m-%d', time, 'unixepoch') AS day, id,
+            title, url, by, score, descendants
         FROM items
-        WHERE type = 'story' AND day > 0
-        ORDER BY day""")
+        WHERE
+            type = 'story' AND
+            day > 0 AND
+            title IS NOT NULL AND
+            (dead IS NULL or NOT dead)
+        ORDER BY day, score DESC""")
     yield from rows
 
 
@@ -59,7 +62,7 @@ if __name__ == '__main__':
     temp_dir = tempfile.mkdtemp()
 
     stories_by_day = group_by_day(get_dates(conn))
-    for stories in itertools.islice(stories_by_day, 5):
+    for stories in stories_by_day:
         render_day(template, temp_dir, stories)
 
     shutil.rmtree(_GENERATED_DIR)
