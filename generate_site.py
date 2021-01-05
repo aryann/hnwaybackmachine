@@ -1,5 +1,8 @@
+import collections
+import logging
 import os
 import pathlib
+import itertools
 import jinja2
 import shutil
 import sqlite3
@@ -11,7 +14,7 @@ _DIR = os.path.dirname(os.path.realpath(__file__))
 _GENERATED_DIR = os.path.join(_DIR, 'generated')
 
 
-def get_dates(conn):
+def get_stories(conn):
     conn.row_factory = sqlite3.Row
     rows = conn.execute("""\
         SELECT
@@ -47,23 +50,56 @@ def render_day(template, dest, stories):
     pathlib.Path(dir).mkdir(parents=True, exist_ok=True)
     with open(os.path.join(dir, 'index.html'), 'w') as f:
         f.write(template.render(stories=stories))
+    logging.info('wrote %s', dir)
+
+
+def split_dates(dates):
+    result = collections.defaultdict(lambda: collections.defaultdict(list))
+    for date in dates:
+        year, month, day = date.split('-')
+        result[year][month].append(day)
+    return result
+
+
+def render_indices(template, dest, dates):
+    dates = split_dates(dates)
+    with open(os.path.join(dest, 'index.html'), 'w') as f:
+        f.write(template.render(items=dates.keys()))
+
+    for year, months in dates.items():
+        with open(os.path.join(dest, year, 'index.html'), 'w') as f:
+            f.write(template.render(items=months))
+
+        for month, days in months.items():
+            with open(os.path.join(dest, year, month, 'index.html'), 'w') as f:
+                f.write(template.render(items=days))
 
 
 if __name__ == '__main__':
+    logging.basicConfig(level=logging.INFO)
     db = sys.argv[1]
+    max_days = int(sys.argv[2]) if len(sys.argv) == 3 else None
     conn = sqlite3.connect(db)
 
     env = jinja2.Environment(
         loader=jinja2.FileSystemLoader(os.path.join(_DIR, 'templates')),
         autoescape=jinja2.select_autoescape(['html'])
     )
-    template = env.get_template('template.html')
+    stories_template = env.get_template('stories.html')
+    index_template = env.get_template('index.html')
 
     temp_dir = tempfile.mkdtemp()
 
-    stories_by_day = group_by_day(get_dates(conn))
+    stories_by_day = group_by_day(get_stories(conn))
+    if max_days:
+        stories_by_day = itertools.islice(stories_by_day, max_days)
+
+    dates = []
     for stories in stories_by_day:
-        render_day(template, temp_dir, stories)
+        dates.append(stories[0]['day'])
+        render_day(stories_template, temp_dir, stories)
+
+    render_indices(index_template, temp_dir, dates)
 
     shutil.rmtree(_GENERATED_DIR)
     os.replace(temp_dir, _GENERATED_DIR)
