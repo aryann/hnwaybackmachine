@@ -49,7 +49,12 @@ def render_day(template, dest, stories):
     dir = os.path.join(dest, *day.split('-'))
     pathlib.Path(dir).mkdir(parents=True, exist_ok=True)
     with open(os.path.join(dir, 'index.html'), 'w') as f:
-        f.write(template.render(stories=stories))
+        year, month, day = day.split('-')
+        breadcrumbs = [('root', None, '../../../'),
+                       ('year', year, '../../'),
+                       ('month', month, '../'),
+                       ('day', day, None)]
+        f.write(template.render(stories=stories, breadcrumbs=breadcrumbs))
     logging.info('wrote %s', dir)
 
 
@@ -64,15 +69,18 @@ def split_dates(dates):
 def render_indices(template, dest, dates):
     dates = split_dates(dates)
     with open(os.path.join(dest, 'index.html'), 'w') as f:
-        f.write(template.render(items=dates.keys()))
+        f.write(template.render(items=dates.keys(), breadcrumbs=[]))
 
     for year, months in dates.items():
         with open(os.path.join(dest, year, 'index.html'), 'w') as f:
-            f.write(template.render(items=months))
+            breadcrumbs = [('root', None, '../'), ('year', year, None)]
+            f.write(template.render(items=months, breadcrumbs=breadcrumbs))
 
         for month, days in months.items():
+            breadcrumbs = [('root', None, '../../'),
+                           ('year', year, '../'), ('month', month, None)]
             with open(os.path.join(dest, year, month, 'index.html'), 'w') as f:
-                f.write(template.render(items=days))
+                f.write(template.render(items=days, breadcrumbs=breadcrumbs))
 
 
 if __name__ == '__main__':

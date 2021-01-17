@@ -1,25 +1,28 @@
-<!DOCTYPE html>
-<html lang="en">
-    <head>
-    </head>
-    <body>
+{% extends "base.html" %}
+{% block body %}
 
-        <ul>
-            {% for story in stories %}
-            <li>
-                <a href="{{ story.url }}">{{ story.title }}</a> &middot;
-                {{ story.score }} points &middot;
-                by <a href="https://news.ycombinator.com/user?id={{ story.by }}">{{ story.by }}</a> &middot;
-                <a href="https://news.ycombinator.com/item?id={{ story.id }}">
+{% include "breadcrumbs.html" %}
+
+<ul>
+    {% for story in stories %}
+        <li>
+            <a href="{{ story.url }}">{{ story.title }}</a>
+            &middot;
+            {{ story.score }}
+            points &middot;
+                                                    by
+            <a href="https://news.ycombinator.com/user?id={{ story.by }}">{{ story.by }}</a>
+            &middot;
+            <a href="https://news.ycombinator.com/item?id={{ story.id }}">
                 {% if story.descendants == 0 %}
                     no comments
                 {% elif story.descendants == 1 %}
                     1 comment
                 {% else %}
-                    {{ story.descendants }} comments
-                {% endif %}</a>
-            </li>
-            {% endfor %}
-        </ul>
-    </body>
-</html>
+                    {{ story.descendants }}
+                    comments
+                {% endif %}
+            </a>
+        </li>
+    {% endfor %}
+</ul>{% endblock %}

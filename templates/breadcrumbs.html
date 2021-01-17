@@ -1,0 +1,17 @@
+<nav>
+    /
+    {% for title, value, link in breadcrumbs %}
+        {%if value %}
+            {{title}}
+            =
+            {% if link %}
+                <a href="{{link}}">{{value}}</a>
+            {% else %}
+                {{value}}
+            {% endif %}
+        {% else %}
+            <a href="{{link}}">{{title}}</a>
+        {% endif %}
+        /
+    {% endfor %}
+</nav>
